@@ -4,6 +4,11 @@ description: 'Github action that retrieves ProjectSettings info for Unity projec
 branding:
   icon: 'settings'
   color: 'gray-dark'
+inputs:
+  project-path:
+    description: "Path to the Unity project root (the folder containing ProjectSettings/)"
+    required: false
+    default: "."
 outputs:
   bundle-version:
     description: "The bundleVersion of the unity project"
@@ -11,14 +16,26 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: "Setup Python v3.8"
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.8
     - name: "Get Project Settings"
       id: get-project-settings
       shell: bash
+      env:
+        PROJECT_PATH: ${{ inputs.project-path }}
       run: |
-        python -m pip install --upgrade pip
-        pip install -U unityparser
-        python ${{ github.action_path }}/main.py
+        settings_file="${PROJECT_PATH%/}/ProjectSettings/ProjectSettings.asset"
+        if [ ! -f "$settings_file" ]; then
+          echo "::error::ProjectSettings file not found: $settings_file"
+          exit 1
+        fi
+
+        bundle_version=$(sed -n -E 's/^[[:space:]]*bundleVersion:[[:space:]]*//p' "$settings_file" | head -n 1 | tr -d '\r')
+        # Strip optional surrounding quotes and trailing whitespace
+        bundle_version=$(printf '%s' "$bundle_version" | sed -E "s/[[:space:]]+\$//; s/^'(.*)'\$/\1/; s/^\"(.*)\"\$/\1/")
+
+        if [ -z "$bundle_version" ]; then
+          echo "::error::Failed to find bundleVersion in $settings_file"
+          exit 1
+        fi
+
+        echo "bundle_version: $bundle_version"
+        echo "bundle-version=$bundle_version" >> "$GITHUB_OUTPUT"
